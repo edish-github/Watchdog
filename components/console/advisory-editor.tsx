@@ -1,10 +1,11 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useMemo, useState } from 'react';
-import { BadgeCheck, CalendarClock, ClipboardCheck, Eye, FileText, RotateCcw, ShieldAlert, ShieldCheck, Sparkles, Trash2 } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { BadgeCheck, CalendarClock, ClipboardCheck, Eye, FileText, Loader2, RotateCcw, ShieldAlert, ShieldCheck, Sparkles, Trash2 } from 'lucide-react';
 import type { Advisory, Lang } from '@/lib/types';
 import { useWD } from '@/lib/store';
+import { useSync } from '@/lib/sync';
 import { useActorName } from '@/lib/hooks';
 import { CITY, HAZARDS, SIGNS, SITE } from '@/lib/catalog';
 import { RULES } from '@/lib/engine';
@@ -37,6 +38,27 @@ export function AdvisoryEditor({ adv }: { adv: Advisory }) {
   const [discard, setDiscard] = useState(false);
   const [look, setLook] = useState(false);
 
+  // Remote mode: the server swaps the template for a Claude draft a few seconds after the draft is created. Adopt it
+  // only while the coordinator has not typed; never overwrite their edits.
+  const claudeOn = useSync((s) => !!s.workspace?.features?.aiDrafting);
+  const aiModel = useSync((s) => s.workspace?.features?.model ?? null);
+  const syncing = useSync((s) => s.pending > 0);
+  const [awaitingClaude, setAwaitingClaude] = useState(() => !!useSync.getState().workspace?.features?.aiDrafting && adv.draft?.by === DRAFTER && !adv.edited);
+  const baseDraft = useRef(JSON.stringify(adv.draft?.text ?? {}));
+  const incoming = JSON.stringify(adv.draft?.text ?? {});
+  useEffect(() => {
+    if (incoming === baseDraft.current) return;
+    const untouched = JSON.stringify(text) === baseDraft.current;
+    baseDraft.current = incoming;
+    if (untouched && adv.draft) setText({ ...adv.draft.text });
+  }, [incoming]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (adv.draft?.by !== DRAFTER) setAwaitingClaude(false); }, [adv.draft?.by]);
+  useEffect(() => {
+    if (!awaitingClaude) return;
+    const t = window.setTimeout(() => setAwaitingClaude(false), 20_000);
+    return () => window.clearTimeout(t);
+  }, [awaitingClaude]);
+
   // Debounced autosave: the store (and audit) only sees settled edits.
   useEffect(() => {
     const t = window.setTimeout(() => {
@@ -52,6 +74,7 @@ export function AdvisoryEditor({ adv }: { adv: Advisory }) {
   const ok = canPublish(checks) && future;
   const blocking = checks.filter((c) => !c.pass && c.blocking).length + (future ? 0 : 1);
   const edited = adv.draft ? adv.langs.some((l) => (text[l] ?? '') !== (adv.draft!.text[l] ?? '')) : true;
+  const drafting = claudeOn && awaitingClaude && syncing;
   const setWhen = (iso: string) => { setText((t) => retime(t, adv.langs, site, validUntil, iso)); setValidUntil(iso); };
   const presets = [
     { label: '+24 h', iso: defaultValidity(d.now, 24) }, { label: '+48 h', iso: defaultValidity(d.now, 48) }, { label: '+72 h', iso: defaultValidity(d.now, 72) },
@@ -71,15 +94,15 @@ export function AdvisoryEditor({ adv }: { adv: Advisory }) {
         sub={`${site.stream}, ${city.name} · ${HAZARDS[adv.hazard].long}`}
         badges={<>
           <StatusPill kind="advisory" status="draft" />
-          <span className={cn('chip', adv.draft && !edited && '!border-plum/30 !bg-plum-soft !text-plum-2')}>{adv.draft ? (edited ? <><BadgeCheck className="h-3 w-3" />Staff edited</> : <><Sparkles className="h-3 w-3" />Auto-draft · {adv.draft.by}</>) : <><BadgeCheck className="h-3 w-3" />Staff-written</>}</span>
+          <span className={cn('chip', adv.draft && !edited && '!border-plum/30 !bg-plum-soft !text-plum-2')}>{adv.draft ? (edited ? <><BadgeCheck className="h-3 w-3" />Staff edited</> : <><Sparkles className="h-3 w-3" />{adv.draft.by === DRAFTER ? 'Template draft' : adv.draft.by.startsWith('claude') ? 'Claude draft' : adv.draft.by.startsWith('gemini') ? 'Gemini draft' : 'AI draft'} · {adv.draft.by}</>) : <><BadgeCheck className="h-3 w-3" />Staff-written</>}</span>
           {sig && <Link href={`/app/signals/${sig.id}`} className="chip hover:border-ink-3">From {sig.id} · score {sig.snapshot.score}</Link>}
         </>}
-        actions={<button className="btn btn-primary btn-lg" disabled={!ok} onClick={() => setConfirm(true)}><ShieldCheck className="h-4 w-4" />Approve and publish</button>} />
+        actions={<button className="btn btn-primary btn-lg" disabled={!ok || drafting} onClick={() => setConfirm(true)}><ShieldCheck className="h-4 w-4" />Approve and publish</button>} />
 
       <div className="grid gap-5 xl:grid-cols-12">
         <div className="space-y-5 xl:col-span-8">
           <Card>
-            <CardHead title="Bilingual advisory text" icon={FileText} sub="Say what to avoid · never “safe” · always the validity window · under 20 words a sentence" />
+            <CardHead title="Bilingual advisory text" icon={FileText} action={drafting ? <span className="chip !border-plum/30 !bg-plum-soft !text-plum-2" role="status"><Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />Drafting with {aiModel ?? 'AI'}…</span> : undefined} sub="Say what to avoid · never “safe” · always the validity window · under 20 words a sentence" />
             <div className="divide-y divide-line">
               {adv.langs.map((l) => {
                 const v = text[l] ?? '';
@@ -93,7 +116,7 @@ export function AdvisoryEditor({ adv }: { adv: Advisory }) {
                         {changed && <button type="button" className="inline-flex items-center gap-1 font-bold text-plum hover:underline" onClick={() => setText((t) => ({ ...t, [l]: adv.draft!.text[l] }))}><RotateCcw className="h-3 w-3" />Reset to draft</button>}
                       </div>
                     </div>
-                    <textarea id={`adv-${l}`} lang={l} className="input min-h-[150px] text-[15px] leading-relaxed" value={v} onChange={(e) => { const nv = e.target.value; setText((t) => ({ ...t, [l]: nv })); }} />
+                    <textarea id={`adv-${l}`} lang={l} readOnly={drafting} aria-busy={drafting} className={cn('input min-h-[150px] text-[15px] leading-relaxed', drafting && 'opacity-60')} value={v} onChange={(e) => { const nv = e.target.value; setText((t) => ({ ...t, [l]: nv })); }} />
                   </div>
                 );
               })}
@@ -133,7 +156,7 @@ export function AdvisoryEditor({ adv }: { adv: Advisory }) {
               <input type="checkbox" className="mt-0.5 h-4 w-4 accent-plum" checked={escalate && !!sig} disabled={!sig} onChange={(e) => setEscalate(e.target.checked)} />
               <span><b className="text-ink">Escalate on publish</b><span className="block text-xs text-ink-2">{sig ? `Build and validate a FHIR One Health bundle for ${city.health}` : 'Needs a linked signal'}</span></span>
             </label>
-            <p className="border-t border-line px-5 py-3 text-xs text-ink-3">{adv.draft?.by === DRAFTER ? 'Drafted by the bounded template (template-v1). The Claude drafter replaces it in the backend build behind the same schema and guardrails.' : 'Written by staff.'} AI never scores, decides or publishes.</p>
+            <p className="border-t border-line px-5 py-3 text-xs text-ink-3">{adv.draft?.by && adv.draft.by !== DRAFTER ? `Drafted by ${adv.draft.by} from a name-free brief (site, hazard, sign counts, validity), then checked by these same guardrails.` : adv.draft?.by === DRAFTER ? 'Drafted by the bounded template (template-v1).' : 'Written by staff.'} AI never scores, decides or publishes.</p>
           </Card>
           <Card>
             <CardHead title="Other actions" />
