@@ -5,6 +5,9 @@ import { useWD } from '@/lib/store';
 import { useLiveWeather } from '@/lib/openmeteo';
 import { useOutbox } from '@/lib/outbox';
 import { Toaster } from './toast';
+import { SyncBridge } from './sync-bridge';
+import { WeatherBridge } from './weather-bridge';
+import { sync } from '@/lib/sync';
 
 /** Rehydrates persisted state (live weather first, so scores match), drives the replay clock, applies prefs, hosts toasts. */
 export function Providers({ children }: { children: React.ReactNode }) {
@@ -15,7 +18,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     Promise.all([Promise.resolve(useLiveWeather.persist.rehydrate()), Promise.resolve(useOutbox.persist.rehydrate())])
       .then(() => useWD.persist.rehydrate())
-      .finally(() => useWD.setState({ hydrated: true }));
+      .finally(() => { useWD.setState({ hydrated: true }); sync.start(); });
   }, []);
 
   useEffect(() => {
@@ -26,5 +29,5 @@ export function Providers({ children }: { children: React.ReactNode }) {
 
   useEffect(() => { document.documentElement.classList.toggle('large-text', largeText); }, [largeText]);
 
-  return (<>{children}<Toaster /></>);
+  return (<>{children}<Toaster /><SyncBridge /><WeatherBridge /></>);
 }
