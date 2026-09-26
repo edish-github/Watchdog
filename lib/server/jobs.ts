@@ -43,3 +43,26 @@ export async function runCycle(c: Client) {
 export async function runOutbox(c: Client, now = Date.now()) {
   const due = await c.execute({
     sql: `SELECT o.workspace_id, o.id FROM fhir_outbox o JOIN workspaces w ON w.id = o.workspace_id
+          WHERE w.kind = 'live' AND o.status IN ('queued', 'failed') AND o.attempts < 8 AND (o.next_attempt_at IS NULL OR o.next_attempt_at <= ?) LIMIT 20`,
+    args: [iso(now)],
+  });
+  let sent = 0;
+  for (const r of due.rows) if ((await deliverBundle(c, String(r.workspace_id), String(r.id), process.env.FHIR_DEFAULT_ENDPOINT || DEFAULT_ENDPOINT)).ok) sent++;
+  return { due: due.rows.length, sent };
+}
+
+/** Every 3 h (or daily on Vercel Hobby): refresh live weather for the live workspace's cities. */
+export async function runWeatherRefresh(c: Client) {
+  const live = await c.execute("SELECT id FROM workspaces WHERE kind = 'live'");
+  let cities = 0;
+  for (const r of live.rows) {
+    let meta = await readWorkspace(c, String(r.id));
+    for (const city of Object.keys(meta?.weatherMode ?? {}).filter(isCity) as CityId[]) {
+      if (!meta) break;
+      await importLiveWeather(c, meta, city);
+      meta = await readWorkspace(c, meta.id);
+      cities++;
+    }
+  }
+  return { workspaces: live.rows.length, cities };
+}
