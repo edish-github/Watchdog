@@ -36,7 +36,7 @@ let version = 0;
 const overrides: Partial<Record<CityId, Record<string, Raw>>> = {};
 const cache = new Map<string, Raw>();
 
-export const getWeatherVersion = () => version;
+export const getWeatherVersion = () => `${active.id}:${active.version()}`;
 export function setWeatherOverrides(city: CityId, days: Record<string, Raw> | null) {
   if (days) overrides[city] = days; else delete overrides[city];
   version++; cache.clear();
@@ -56,7 +56,7 @@ function synth(city: CityId, date: string): Raw {
   return { tmax: round(t, 1), rain: wet ? round(c.wetMm * (0.25 + 2.2 * hash01(city + date + 'm') ** 2), 1) : 0 };
 }
 
-export function rawDay(city: CityId, date: string): Raw {
+function browserRaw(city: CityId, date: string): Raw {
   const o = overrides[city]?.[date];
   if (o) return o;
   const k = city + date, hit = cache.get(k);
@@ -75,3 +75,40 @@ export function dayWeather(site: Site, date: string): DayWeather {
   const flowRatio = clamp((base + rain14 / 30 - Math.max(0, today.tmax - 30) * 0.006) * site.flowFactor, 0.08, 3);
   return { date, tmax: today.tmax, rain: today.rain, rain14: round(rain14, 1), rain72: round(rain72, 1), flowRatio: round(flowRatio, 3), discharge: round(flowRatio * site.baselineFlow, 2) };
 }
+
+// ───────────────────────── Weather providers ─────────────────────────
+// The engine reads weather through the ACTIVE provider. withWeather() swaps it around a synchronous call, so two
+// workspaces on one server instance never see each other's weather (reduce() and the engine never await).
+
+export type DayRaw = Raw;
+export interface WeatherProvider { readonly id: string; version(): number; raw(city: CityId, date: string): Raw }
+
+const baseCache = new Map<string, Raw>();
+/** Scripted replay window (1 Sep – 3 Oct 2026) or seeded climatology — never overrides. */
+function baseRaw(city: CityId, date: string): Raw {
+  const k = city + date, hit = baseCache.get(k);
+  if (hit) return hit;
+  const sc = SCN[city], i = daysBetween(SCN_START, date);
+  const v = sc && i >= 0 && i < sc.tmax.length ? { tmax: sc.tmax[i], rain: sc.rain[i] } : synth(city, date);
+  baseCache.set(k, v);
+  return v;
+}
+
+/** Pure synthetic weather: the demo scenario everyone shares. */
+export const syntheticWeather: WeatherProvider = { id: 'synthetic', version: () => 0, raw: baseRaw };
+/** The browser's provider: synthetic plus any Open-Meteo overrides imported on the Data Sources page. */
+export const browserWeather: WeatherProvider = { id: 'browser', version: () => version, raw: browserRaw };
+/** Live data for some cities and dates on top of synthetic weather. The id must change whenever the data changes. */
+export function overlayWeather(id: string, data: Partial<Record<CityId, Record<string, Raw>>>): WeatherProvider {
+  return { id, version: () => 0, raw: (city, date) => data[city]?.[date] ?? baseRaw(city, date) };
+}
+
+let active: WeatherProvider = browserWeather;
+export const activeWeather = () => active;
+/** Runs fn with p as the active provider, restoring the previous one even if fn throws. fn must be synchronous. */
+export function withWeather<T>(p: WeatherProvider, fn: () => T): T {
+  const prev = active;
+  active = p;
+  try { return fn(); } finally { active = prev; }
+}
+export function rawDay(city: CityId, date: string): Raw { return active.raw(city, date); }
