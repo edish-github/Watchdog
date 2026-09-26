@@ -7,6 +7,7 @@ import { useWD } from '@/lib/store';
 import { cn } from '@/lib/utils';
 import { SyntheticBadge } from '../ui';
 import { ReplayClock } from './replay';
+import { ShareSandbox } from './share-sandbox';
 
 const SECTION: Record<string, [string, string]> = {
   overview: ['Network', 'Overview'], sites: ['Network', 'Sites'], watches: ['Network', 'Watches'],
@@ -43,6 +44,7 @@ export function Topbar({ onMenu, onNotifications }: { onMenu: () => void; onNoti
         </nav>
         <SyntheticBadge className="hidden md:inline-flex" />
         <Link href="/observe" target="_blank" className="btn btn-ghost btn-sm hidden xl:inline-flex"><Smartphone className="h-4 w-4" />Public app</Link>
+        <ShareSandbox />
         <ReplayClock />
         <button onClick={onNotifications} className="relative grid h-9 w-9 place-items-center rounded-full text-ink-2 hover:bg-sand lg:hidden" aria-label={`Notifications, ${unread} unread`}>
           <Bell className="h-[18px] w-[18px]" />{unread > 0 && <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-plum ring-2 ring-canvas" />}
