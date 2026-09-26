@@ -3,6 +3,8 @@ import { createJSONStorage, persist } from 'zustand/middleware';
 import type { BundleRecord } from './types';
 import { DEFAULT_ENDPOINT } from './fhir';
 import { useWD } from './store';
+import { sync } from './sync';
+import { backendMode, serverApi } from './transport';
 
 export const useOutbox = create<{ endpoint: string; setEndpoint: (e: string) => void }>()(
   persist((set) => ({ endpoint: DEFAULT_ENDPOINT, setEndpoint: (e) => set({ endpoint: e.trim().replace(/\/+$/, '') || DEFAULT_ENDPOINT }) }),
@@ -16,8 +18,20 @@ export function parseReceipt(s?: string): Receipt | null {
   try { const r = s ? (JSON.parse(s) as Receipt) : null; return r && typeof r.http === 'number' ? r : null; } catch { return null; }
 }
 
-/** POSTs a validated transaction bundle to a FHIR R4 base URL and records the outcome through the reducer. */
+/**
+ * Remote mode: the server sends the bundle (allow-listed endpoints, retries recorded) and the new status syncs back.
+ * Local mode: the browser POSTs a validated transaction bundle itself and records the outcome through the reducer.
+ */
 export async function sendBundle(b: BundleRecord, endpoint: string): Promise<{ ok: boolean; message: string }> {
+  if (backendMode() === 'remote') {
+    try {
+      const r = await serverApi.sendBundle(b.id, endpoint);
+      sync.refresh();
+      return { ok: r.ok, message: r.ok ? r.message : `${r.message}${r.nextAttemptAt ? ' · will retry' : ''}` };
+    } catch (e) {
+      return { ok: false, message: e instanceof Error ? e.message : 'Network error' };
+    }
+  }
   const { dispatch } = useWD.getState();
   if (b.validation.errors.length) {
     dispatch({ type: 'bundle/status', id: b.id, status: 'failed', error: `Blocked locally: ${b.validation.errors.length} validation error(s)` });
