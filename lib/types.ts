@@ -77,7 +77,7 @@ export interface Advisory {
 }
 
 export interface FhirResource { resourceType: string; [key: string]: unknown }
-export interface FhirEntry { fullUrl: string; resource: FhirResource; request: { method: 'POST'; url: string } }
+export interface FhirEntry { fullUrl: string; resource: FhirResource; request: { method: 'POST'; url: string; ifNoneExist?: string } }
 export interface FhirBundle { resourceType: 'Bundle'; id: string; type: 'transaction'; timestamp: string; meta?: Record<string, unknown>; entry: FhirEntry[] }
 export interface Validation { errors: string[]; warnings: string[]; notes: string[]; checked: number }
 export interface BundleRecord {
