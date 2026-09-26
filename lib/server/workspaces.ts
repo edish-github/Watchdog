@@ -78,3 +78,53 @@ async function replaceWorld(c: Client, id: string, d: Domain, after: InStatement
     if (meta.kind !== 'demo') throw new ApiProblem(403, 'forbidden', 'Only demo sandboxes can be replaced.');
     const base: WorkspaceMeta = { ...meta, posSeq: 0, auditSeq: 0, auditHead: '' };
     const wipe: InStatement[] = [
+      ...COLLECTION_ORDER.map((k) => ({ sql: `DELETE FROM ${COLLECTIONS[k].table} WHERE workspace_id = ?`, args: [id] })),
+      { sql: 'DELETE FROM audit_events WHERE workspace_id = ?', args: [id] },
+      { sql: 'DELETE FROM command_log WHERE workspace_id = ?', args: [id] },
+      { sql: 'DELETE FROM photos WHERE workspace_id = ?', args: [id] },
+      { sql: 'UPDATE workspaces SET start = ? WHERE id = ?', args: [d.start, id] },
+    ];
+    try {
+      const m = await commitPlan(c, base, d, planDiff(base, emptyLike(d), d), { before: wipe, after });
+      return { meta: { ...m, start: d.start }, d };
+    } catch (e) {
+      if (isRetryable(e)) { await sleep(backoff(attempt)); continue; }
+      throw e;
+    }
+  }
+  throw new ApiProblem(409, 'version_conflict', 'The sandbox was busy; try again.');
+}
+
+/** Replaces a sandbox's world with a preset, replayed on the sandbox's own weather (live snapshots included). */
+export async function resetSandbox(c: Client, id: string, preset: string) {
+  if (!isPreset(preset)) throw new ApiProblem(400, 'invalid_action', `Unknown preset "${preset}".`);
+  const meta = await readWorkspace(c, id);
+  if (!meta) throw new ApiProblem(404, 'not_found', 'This sandbox no longer exists.');
+  const wx = await loadWeather(c, meta);
+  return replaceWorld(c, id, stripTransient(withWeather(wx, () => buildScenario(preset))));
+}
+
+/** Replaces a sandbox's world with an imported state (already validated, photos already extracted). */
+export async function importSandbox(c: Client, id: string, d: Domain, photoInserts: InStatement[] = []) {
+  return replaceWorld(c, id, stripTransient(d), photoInserts);
+}
+
+export async function findByJoinCode(c: Client, code: string): Promise<WorkspaceMeta | null> {
+  const norm = normalizeJoinCode(code);
+  if (norm.length !== 6) return null;
+  const rs = await c.execute({ sql: "SELECT id FROM workspaces WHERE join_code = ? AND kind = 'demo'", args: [norm] });
+  return rs.rows[0] ? readWorkspace(c, String(rs.rows[0].id)) : null;
+}
+
+/** Deletes a demo sandbox and everything in it (the live workspace is refused by the audit trigger). */
+export async function deleteWorkspace(c: Client, id: string) {
+  await withWriteLock(c, () => c.batch([
+    ...COLLECTION_ORDER.map((k) => ({ sql: `DELETE FROM ${COLLECTIONS[k].table} WHERE workspace_id = ?`, args: [id] })),
+    { sql: 'DELETE FROM audit_events WHERE workspace_id = ?', args: [id] },
+    { sql: 'DELETE FROM command_log WHERE workspace_id = ?', args: [id] },
+    { sql: 'DELETE FROM reporters WHERE workspace_id = ?', args: [id] },
+    { sql: 'DELETE FROM follows WHERE workspace_id = ?', args: [id] },
+    { sql: 'DELETE FROM photos WHERE workspace_id = ?', args: [id] },
+    { sql: "DELETE FROM workspaces WHERE id = ? AND kind = 'demo'", args: [id] },
+  ], 'write'));
+}
