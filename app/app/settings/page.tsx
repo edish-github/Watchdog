@@ -5,6 +5,7 @@ import { useRef, useState } from 'react';
 import { Accessibility, Clock, Database, Download, Globe, Info, LogOut, Pause, Play, RotateCcw, Trash2, Upload, User } from 'lucide-react';
 import type { Domain } from '@/lib/types';
 import { useWD } from '@/lib/store';
+import { sync } from '@/lib/sync';
 import { ROLE_LABEL, useActor } from '@/lib/hooks';
 import { PRESETS } from '@/lib/sim';
 import { RULES } from '@/lib/engine';
@@ -42,6 +43,7 @@ export default function SettingsPage() {
       const j = JSON.parse(await f.text()) as { format?: string; d?: Domain };
       if (j.format !== 'watchdog-state' || !j.d || !Array.isArray(j.d.observations) || !Array.isArray(j.d.watches) || typeof j.d.now !== 'string') throw new Error('Not a Watchdog state export');
       useWD.setState({ d: j.d, running: false });
+      sync.importDomain(j.d);
       toast('State imported', `Replay clock at ${fmtWhen(j.d.now, prefs.consoleTz)}`);
     } catch (e) { toast('Import failed', e instanceof Error ? e.message : 'Unreadable file', 'warn'); }
     finally { if (file.current) file.current.value = ''; }
