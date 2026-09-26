@@ -4,6 +4,7 @@ import type { Domain } from './types';
 import { buildScenario, reduce, type Action } from './sim';
 import { eraseDevice } from './privacy';
 import { addMs } from './utils';
+import { bindStore, sync } from './sync';
 
 export type Locale = 'en' | 'pt';
 export interface Prefs { locale: Locale; largeText: boolean; consoleTz: string }
@@ -65,9 +66,9 @@ export const useWD = create<WDState>()(
       follows: ['COI-03'],
       volunteer: 'tiago',
       prefs: { locale: 'en', largeText: false, consoleTz: 'Europe/Lisbon' },
-      dispatch: (a) => { const next = reduce(get().d, a); set({ d: next }); return next.lastCreated; },
-      reset: (preset = 'day2') => set({ d: buildScenario(preset), running: false }),
-      advance: (minutes) => { const d = get().d; set({ d: reduce(d, { type: 'advance', to: addMs(d.now, Math.round(minutes * 60_000)) }) }); },
+      dispatch: (a) => { const next = reduce(get().d, a); set({ d: next }); sync.send(a); return next.lastCreated; },
+      reset: (preset = 'day2') => { set({ d: buildScenario(preset), running: false }); sync.reset(preset); },
+      advance: (minutes) => { const d = get().d; const a: Action = { type: 'advance', to: addMs(d.now, Math.round(minutes * 60_000)) }; set({ d: reduce(d, a) }); sync.send(a); },
       setRunning: (running) => set({ running }),
       setSpeed: (speed) => set({ speed }),
       login: (session) => set({ session }),
@@ -80,6 +81,7 @@ export const useWD = create<WDState>()(
         const { d, device } = get();
         const r = eraseDevice(d, device.id, device.pet ? [device.pet] : []);
         set({ d: r.d, device: { id: randomDevice() }, follows: [] });
+        sync.send({ type: 'device/erase', deviceId: device.id, names: device.pet ? [device.pet] : [] });
         return { deleted: r.deleted, unlinked: r.unlinked };
       },
       setVolunteer: (volunteer) => set({ volunteer }),
@@ -96,3 +98,6 @@ export const useWD = create<WDState>()(
 );
 
 export const useDomain = () => useWD((s) => s.d);
+
+/** Remote transport (NEXT_PUBLIC_BACKEND=remote): the sync engine reads and replaces the domain through this bridge. */
+bindStore({ get: () => useWD.getState().d, set: (d) => useWD.setState({ d }) });
