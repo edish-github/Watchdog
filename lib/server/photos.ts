@@ -38,3 +38,42 @@ export interface Extracted<T> { value: T; entries: PhotoEntry[] }
  * transaction as the change. Key order of objects is preserved (domain hashes stay stable).
  */
 export async function extractPhotos<T>(value: T, ctx: { workspaceId: string; deviceId: string | null }): Promise<Extracted<T>> {
+  const entries: PhotoEntry[] = [];
+  const created = new Date();
+  const deleteAfter = new Date(created.getTime() + PHOTO_RETENTION_DAYS * 86_400_000).toISOString();
+  async function walk(v: unknown): Promise<unknown> {
+    if (typeof v === 'string') {
+      if (!DATA_URL.test(v)) return v;
+      const raw = Buffer.from(v.slice(v.indexOf(',') + 1), 'base64');
+      if (raw.length > MAX_PHOTO_BYTES) throw new ApiProblem(413, 'payload_too_large', 'A photo is larger than 12 MB.');
+      const img = await reencode(raw);
+      const key = randomBytes(16).toString('base64url');
+      entries.push({
+        key,
+        stmt: {
+          sql: 'INSERT INTO photos (key, workspace_id, token_hash, device_id, width, height, bytes, mime, body, created_at, delete_after) VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?)',
+          args: [key, ctx.workspaceId, ctx.deviceId, img.width, img.height, img.data.length, 'image/jpeg', img.data, created.toISOString(), deleteAfter],
+        },
+      });
+      return `/api/photos/${key}`;
+    }
+    if (Array.isArray(v)) { const out: unknown[] = []; for (const x of v) out.push(await walk(x)); return out; }
+    if (v && typeof v === 'object') { const out: Record<string, unknown> = {}; for (const [k, x] of Object.entries(v)) out[k] = await walk(x); return out; }
+    return v;
+  }
+  return { value: (await walk(value)) as T, entries };
+}
+
+/** Photo keys the domain still points at (reports, look responses, advisories). */
+export const photoKeys = (d: Domain) => new Set([...JSON.stringify([d.observations, d.looks, d.advisories]).matchAll(PHOTO_URL)].map((m) => m[1]));
+
+export const deletePhotos = (workspaceId: string, keys: string[]): InStatement => ({
+  sql: `DELETE FROM photos WHERE workspace_id = ? AND key IN (${keys.map(() => '?').join(', ')})`, args: [workspaceId, ...keys],
+});
+
+export async function readPhoto(c: Client, key: string): Promise<{ mime: string; body: ArrayBuffer; workspaceId: string } | null> {
+  if (!PHOTO_KEY.test(key)) return null;
+  const rs = await c.execute({ sql: 'SELECT mime, body, workspace_id FROM photos WHERE key = ? AND body IS NOT NULL', args: [key] });
+  const r = rs.rows[0];
+  return r ? { mime: String(r.mime ?? 'image/jpeg'), body: r.body as ArrayBuffer, workspaceId: String(r.workspace_id) } : null;
+}
