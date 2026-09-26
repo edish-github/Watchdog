@@ -1,23 +1,12 @@
+import RULES_V1 from '../rules/v1.0.0.json';
 import type { EvidenceBreakdown, EvidenceItem, HazardId, Observation, ScoreSnapshot, SeriesPoint, Site, SignCategory, WatchBreakdown, DayWeather } from './types';
 import { CITY, SIGNS } from './catalog';
 import { dayWeather, getWeatherVersion } from './weather';
 import { addH, clamp, dayAdd, lerp, localDate, localHours, round, uniq, zonedToUtc } from './utils';
 
 /** Deterministic, versioned rules. Everything the Why drawer shows comes from here. */
-export const RULES = {
-  version: '1.0.0',
-  sha: '7a91bf2',
-  file: 'rules/hazards.v1.yaml',
-  h1: { tBase: 28, tSpan: 8, rainRef: 14, flowRef: 0.5, flowSpan: 0.25, w: { heat: 0.5, dry: 0.25, flow: 0.25 } },
-  h2: { rainBase: 8, rainSpan: 22, r72Base: 15, r72Span: 35, w: { storm: 0.45, burst: 0.55 } },
-  vuln: { H1: { shadeDeficit: 0.4, channel: 0.3, sealing: 0.3 }, H2: { sealing: 0.6, channel: 0.4 } },
-  tiers: { watchOpen: 50, watchClose: 40, advisoryGate: 75, horizonDays: 3 },
-  fusion: { community: 0.6, watch: 0.4, synergy: 0.075, windowHours: 72, strong: 0.35, cap: 0.6, dogAcute: 0.25, dogLate: 0.12 },
-  roles: { walker: 1, citizen_scientist: 1.4, verified: 1.6 },
-  resolution: { checks: 2, minHours: 24 },
-  advisory: { validityHours: 72 },
-  cycleHoursUtc: [7, 19],
-} as const;
+/** Deterministic, versioned rules. Loaded from rules/v1.0.0.json; every decision records RULES.version and RULES.sha. */
+export const RULES = RULES_V1;
 
 export function trigger(hz: HazardId, w: DayWeather) {
   if (hz === 'H1') {
