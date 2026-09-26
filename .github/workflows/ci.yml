@@ -1,7 +1,9 @@
 name: ci
 on: [push, pull_request]
+env:
+  SESSION_SECRET: ci-only-session-secret-0123456789abcdef
 jobs:
-  web:
+  unit:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -9,9 +11,46 @@ jobs:
         with: { node-version: 20, cache: npm }
       - run: npm ci
       - run: npm run typecheck
-      - run: npm run build
+      - run: npm run test:unit
+  e2e-local:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20, cache: npm }
+      - run: npm ci
       - run: npx playwright install --with-deps chromium
       - run: npm run test:e2e
       - uses: actions/upload-artifact@v4
         if: failure()
-        with: { name: playwright-report, path: playwright-report }
+        with: { name: playwright-report-local, path: playwright-report }
+  e2e-remote:
+    runs-on: ubuntu-latest
+    env:
+      NEXT_PUBLIC_BACKEND: remote
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20, cache: npm }
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with: { name: playwright-report-remote, path: playwright-report }
+  fhir:
+    runs-on: ubuntu-latest
+    env:
+      # Repository variable FHIR_CANONICAL = https://<your-domain>/fhir (DEPLOY.md, step 6).
+      NEXT_PUBLIC_FHIR_CANONICAL: ${{ vars.FHIR_CANONICAL || 'https://watchdog.invalid/fhir' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20, cache: npm }
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '17' }
+      - run: npm ci
+      - run: npm run fhir:validate
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: fhir-validation, path: 'fhir/validation.*' }
