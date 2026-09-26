@@ -1,27 +1,40 @@
 import type { Page } from '@playwright/test';
 
-export async function fresh(page: Page) {
-  await page.goto('/');
-  await page.evaluate(() => localStorage.clear());
-  await page.reload();
+async function waitForPending(page: Page) {
+  try {
+    await page.waitForFunction(() => {
+      const w = window as unknown as { __wdSync?: { getState: () => { pending: number } } };
+      if (!w.__wdSync) return true;
+      return w.__wdSync.getState().pending === 0;
+    }, null, { timeout: 10_000 });
+  } catch {
+    // ignore
+  }
 }
-export async function loginAs(page: Page, name = 'Sofia Silva') {
-  await page.goto('/login');
-  await page.getByRole('button', { name: new RegExp(name) }).first().click();
-  await page.waitForURL('**/app/overview');
+
+async function waitForAdopted(page: Page) {
+  try {
+    await page.waitForFunction(() => {
+      const w = window as unknown as { __wdSync?: { getState: () => { pending: number; status: string } } };
+      if (!w.__wdSync) return false;
+      const s = w.__wdSync.getState();
+      return s.status === 'local' || (s.pending === 0 && s.status !== 'connecting');
+    }, null, { timeout: 10_000 });
+  } catch {
+    // ignore
+  }
 }
-export function collectErrors(page: Page) {
-  const errors: string[] = [];
-  page.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`));
-  page.on('console', (m) => { if (m.type() === 'error') errors.push(`console: ${m.text()}`); });
-  return errors;
+
+export function setupSyncWait(page: Page) {
+  if ((page as unknown as { __syncHooked?: boolean }).__syncHooked) return;
+  (page as unknown as { __syncHooked?: boolean }).__syncHooked = true;
+
+  const rawGoto = page.goto.bind(page);
+  page.goto = async (url: string, options?: Parameters<Page['goto']>[1]) => {
+    await waitForPending(page);
+    const res = await rawGoto(url, options);
+    await waitForAdopted(page);
+    return res;
+  };
 }
-export async function jumpTo(page: Page, preset: RegExp) {
-  await page.goto('/app/settings');
-  await page.getByRole('button', { name: preset }).first().click();
-}
-export async function advanceReplay(page: Page, steps: ('+15 min' | '+1 h' | '+6 h' | '+1 day')[]) {
-  await page.locator('header button[aria-haspopup="dialog"]').first().click();
-  for (const s of steps) await page.getByRole('button', { name: s, exact: true }).click();
-  await page.keyboard.press('Escape');
-}
+
