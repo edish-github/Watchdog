@@ -82,7 +82,7 @@ export default function FhirOutboxPage() {
         <div className="space-y-5 xl:col-span-4">
           <Card>
             <CardHead title="Validation" icon={ShieldCheck} />
-            <KV rows={[['Local R4 structural checks', `${checks} run`], ['Errors', errors], ['Warnings', warnings], ['Profiles', 'R4 core + patient-animal extension'], ['HL7 Java validator', 'CI in the backend build']]} />
+            <KV rows={[['Local R4 structural checks', `${checks} run`], ['Errors', errors], ['Warnings', warnings], ['Profiles', 'R4 core + patient-animal extension'], ['HL7 Java validator', 'CI · npm run fhir:validate']]} />
           </Card>
           <Card>
             <CardHead title="Resource count" icon={Boxes} />
