@@ -48,3 +48,28 @@ export const MIGRATIONS: { id: string; statements: string[] }[] = [
       'CREATE TABLE IF NOT EXISTS invites (code TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, person_id TEXT NOT NULL, created_by TEXT NOT NULL, created_at TEXT NOT NULL, expires_at TEXT NOT NULL, used_at TEXT)',
       'CREATE TABLE IF NOT EXISTS photos (key TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, token_hash TEXT, width INTEGER, height INTEGER, bytes INTEGER, created_at TEXT NOT NULL, delete_after TEXT NOT NULL, advisory_id TEXT)',
       'CREATE TABLE IF NOT EXISTS weather_daily (city_id TEXT NOT NULL, date TEXT NOT NULL, source TEXT NOT NULL, tmax REAL, rain REAL, discharge REAL, fetched_at TEXT NOT NULL, PRIMARY KEY (city_id, date, source))',
+      'CREATE TABLE IF NOT EXISTS command_log (workspace_id TEXT NOT NULL, request_id TEXT NOT NULL, action_type TEXT NOT NULL, actor TEXT, version_after INTEGER, response TEXT, created_at TEXT NOT NULL, PRIMARY KEY (workspace_id, request_id))',
+      'CREATE TABLE IF NOT EXISTS rate_limits (key TEXT PRIMARY KEY, window_start TEXT NOT NULL, count INTEGER NOT NULL)',
+    ],
+  },
+  {
+    id: '0002_photos',
+    statements: [
+      'ALTER TABLE photos ADD COLUMN device_id TEXT',
+      'ALTER TABLE photos ADD COLUMN mime TEXT',
+      'ALTER TABLE photos ADD COLUMN body BLOB',
+      'CREATE INDEX IF NOT EXISTS photos_workspace_device ON photos (workspace_id, device_id)',
+    ],
+  },
+];
+
+export async function migrate(c: Client) {
+  // Local files: WAL lets reads continue while a command commits. Remote databases manage their own journal.
+  try { await c.execute('PRAGMA journal_mode = WAL'); } catch { /* not supported remotely */ }
+  await c.execute('CREATE TABLE IF NOT EXISTS schema_migrations (id TEXT PRIMARY KEY, applied_at TEXT NOT NULL)');
+  const done = new Set((await c.execute('SELECT id FROM schema_migrations')).rows.map((r) => String(r.id)));
+  for (const m of MIGRATIONS) {
+    if (done.has(m.id)) continue;
+    await c.batch([...m.statements, { sql: 'INSERT OR IGNORE INTO schema_migrations (id, applied_at) VALUES (?, ?)', args: [m.id, new Date().toISOString()] }], 'write');
+  }
+}
