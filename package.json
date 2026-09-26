@@ -10,7 +10,15 @@
     "test:e2e": "playwright test --grep-invert '(@network|@capture)'",
     "test:e2e:network": "playwright test --grep @network",
     "test:e2e:ui": "playwright test --ui",
-    "capture:screenshots": "playwright test --grep @capture"
+    "capture:screenshots": "playwright test --grep @capture",
+    "test:unit": "vitest run",
+    "test": "vitest run",
+    "db:smoke": "tsx scripts/db-smoke.ts",
+    "draft:try": "tsx scripts/draft-try.ts",
+    "fhir:examples": "tsx scripts/fhir-examples.ts",
+    "fhir:validate": "bash scripts/fhir-validate.sh",
+    "db:migrate": "tsx scripts/db-migrate.ts",
+    "vercel-build": "npm run db:migrate && npm run build"
   },
   "dependencies": {
     "clsx": "^2.1.1",
@@ -18,7 +26,11 @@
     "next": "^15.1.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "zustand": "^5.0.2"
+    "zustand": "^5.0.2",
+    "@libsql/client": "^0.15.9",
+    "zod": "^3.25.76",
+    "qrcode": "^1.5.4",
+    "sharp": "^0.34.3"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.13.0",
@@ -29,6 +41,9 @@
     "autoprefixer": "^10.4.20",
     "postcss": "^8.4.49",
     "tailwindcss": "^3.4.17",
-    "typescript": "^5.7.2"
+    "typescript": "^5.7.2",
+    "vitest": "^3.2.4",
+    "tsx": "^4.20.3",
+    "@types/qrcode": "^1.5.5"
   }
 }
