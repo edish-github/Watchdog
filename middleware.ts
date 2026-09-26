@@ -23,3 +23,13 @@ export const CSP = [
 
 export function middleware(_req: NextRequest) {
   const res = NextResponse.next();
+  res.headers.set('Content-Security-Policy', CSP);
+  res.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.headers.set('X-Content-Type-Options', 'nosniff');
+  res.headers.set('X-Frame-Options', 'DENY');
+  res.headers.set('Permissions-Policy', 'camera=(self), geolocation=(self), microphone=(), payment=(), usb=(), interest-cohort=()');
+  if (!isDev) res.headers.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  return res;
+}
+
+export const config = { matcher: ['/((?!_next/static|_next/image|favicon.ico).*)'] };
