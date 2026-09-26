@@ -116,3 +116,28 @@ watchdog/
 - **Restoration measures** — mapped to Catalogue of Measures *categories*. Codes are to be confirmed with the consortium.
 
 Apache-2.0.
+
+## Backend
+
+Watchdog supports both standalone in-browser operation and centralized server deployment:
+- **Local mode**: Optimistic in-browser simulation with offline storage.
+- **Remote mode**: Centralized state management backed by libSQL / Turso database with optimistic concurrency, authenticated REST sync, and FHIR transactions.
+
+```bash
+cp .env.example .env.local      # optional; defaults work locally
+npm run test:unit               # Vitest: self-tests, weather scoping, persistence round trip
+npm run db:smoke                # one sandbox per preset: round trip + audit chain against DATABASE_URL
+curl -s localhost:3000/api/health
+curl -si -X POST localhost:3000/api/workspaces -H 'content-type: application/json' -d '{"preset":"day2"}'
+```
+
+### Running on the server (remote transport)
+
+```bash
+NEXT_PUBLIC_BACKEND=remote npm run build     # the flag is baked in at build time
+NEXT_PUBLIC_BACKEND=remote npm start
+# Phone on the same Wi-Fi (plain http): open the console via the laptop's LAN IP, not localhost, so the QR
+# code points somewhere the phone can reach, and let the cookie work without https:
+COOKIE_SECURE=false NEXT_PUBLIC_BACKEND=remote npm start -- -H 0.0.0.0
+```
+
