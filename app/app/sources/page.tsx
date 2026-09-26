@@ -4,6 +4,8 @@ import { useState } from 'react';
 import { ArrowUpRight, CloudSun, Database, LoaderCircle, RefreshCw, RotateCcw, Server, ShieldCheck, Waves } from 'lucide-react';
 import type { CityId } from '@/lib/types';
 import { useWD } from '@/lib/store';
+import { useSync } from '@/lib/sync';
+import { backendMode, serverApi } from '@/lib/transport';
 import { fetchGlofas, fetchOpenMeteo, useLiveWeather } from '@/lib/openmeteo';
 import { pingEndpoint, useOutbox } from '@/lib/outbox';
 import { DEFAULT_ENDPOINT } from '@/lib/fhir';
@@ -31,8 +33,10 @@ export default function SourcesPage() {
   const live = CITIES.filter((c) => imports[c.id]).length;
   const today = new Date().toISOString().slice(0, 10);
   const reseedNow = () => { const st = useWD.getState(); st.reset(st.d.preset); };
+  const remote = backendMode() === 'remote';
+  const ai = useSync((s) => s.workspace?.features);
 
-  const pull = async (c: CityId) => { const r = await fetchOpenMeteo(c); save(c, r); return r; };
+  const pull = async (c: CityId) => { const r = remote ? await serverApi.importWeather(c) : await fetchOpenMeteo(c); save(c, r); return r; };
   const importCity = async (c: CityId) => {
     setBusy(c); setErrs((e) => ({ ...e, [c]: undefined }));
     try { const r = await pull(c); if (reseed) reseedNow(); toast(`Live weather for ${CITY[c].name}`, `${r.days} days · ${r.from} → ${r.to} · ${r.ms} ms${reseed ? ' · replay re-seeded' : ''}`); }
@@ -47,7 +51,7 @@ export default function SourcesPage() {
     setBusy(null);
     toast('Live weather import', `${ok} of ${CITIES.length} cities updated${reseed && ok ? ' · replay re-seeded' : ''}`, ok === CITIES.length ? 'success' : 'warn');
   };
-  const revert = (c: CityId) => { save(c, null); if (reseed) reseedNow(); toast(`${CITY[c].name} is back on synthetic weather`, undefined, 'info'); };
+  const revert = async (c: CityId) => { if (remote) { try { await serverApi.revertWeather(c); } catch (e) { toast('Could not switch back on the server', e instanceof Error ? e.message : undefined, 'warn'); return; } } save(c, null); if (reseed) reseedNow(); toast(`${CITY[c].name} is back on synthetic weather`, undefined, 'info'); };
   const loadGlofas = async () => {
     setBusy('glofas'); setGErr('');
     try { const r = await fetchGlofas(gCity); setGlofas({ city: gCity, ...r }); } catch (e) { setGErr(e instanceof Error ? e.message : 'Request failed'); } finally { setBusy(null); }
@@ -67,7 +71,7 @@ export default function SourcesPage() {
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Fact label="Weather mode" value={`${live} / ${CITIES.length} live`} sub={live ? 'Open-Meteo overrides active' : 'Synthetic, labelled on every screen'} />
         <Fact label="FHIR endpoint" value={endpoint.replace(/^https?:\/\//, '').split('/')[0]} sub={endpoint === DEFAULT_ENDPOINT ? 'Public HAPI test server' : 'Custom endpoint'} />
-        <Fact label="Drafting" value="template-v1" sub="Claude drafter arrives with the backend" />
+        <Fact label="Drafting" value={ai?.aiDrafting ? (ai.model ?? 'AI') : 'template-v1'} sub={ai?.aiDrafting ? `${ai.provider === 'gemini' ? 'Google Gemini' : 'Anthropic Claude'} · guardrail-checked` : remote ? 'Template · no AI key on the server' : 'Template · local mode'} />
         <Fact label="OAH ENORA API" value="Off" sub="Flag off until data use is confirmed" />
       </div>
 
@@ -138,8 +142,8 @@ export default function SourcesPage() {
           <CardHead title="Other adapters" icon={Database} />
           <KV rows={[
             ['OneAquaHealth ENORA API (habitat & perception codes)', 'Off · awaiting written permission'],
-            ['Anthropic Claude (advisory drafting)', 'Backend build · template-v1 until then'],
-            ['Public PWA reports', 'This device only · backend queue later'],
+            ['AI advisory drafting', ai?.aiDrafting ? `${ai.model} (${ai.provider}) · server-side, name-free brief, same guardrails` : 'Template (template-v1) · no AI key configured'],
+            ['Public PWA reports', remote ? 'Server sandbox · synced across devices' : 'This device only (local mode)'],
             ['Maps', 'Stylised SVG · no tile provider, no tracking'],
           ]} />
         </Card>
