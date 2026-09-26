@@ -38,3 +38,16 @@ export async function fetchOpenMeteo(city: CityId, doFetch: typeof fetch = defau
   });
   const keys = Object.keys(data).sort();
   if (!keys.length) throw new Error('Open-Meteo returned only empty values');
+  return { data, fetchedAt: new Date().toISOString(), from: keys[0], to: keys[keys.length - 1], days: keys.length, ms: Math.round(performance.now() - t0), url };
+}
+
+/** GloFAS river discharge (m³/s) at the city's 5 km grid cell via the Open-Meteo Flood API. Informational. */
+export async function fetchGlofas(city: CityId, doFetch: typeof fetch = defaultFetch) {
+  const c = CITY[city];
+  const url = `https://flood-api.open-meteo.com/v1/flood?latitude=${c.lat}&longitude=${c.lon}&daily=river_discharge&past_days=14&forecast_days=7`;
+  const t0 = performance.now();
+  const j = (await getJson(url, doFetch).catch((e) => { throw new Error(`Flood API: ${e instanceof Error ? e.message : e}`); })) as { daily?: { time: string[]; river_discharge: (number | null)[] } };
+  const days = (j.daily?.time ?? []).map((date, i) => ({ date, q: j.daily!.river_discharge[i] })).filter((x): x is { date: string; q: number } => x.q != null);
+  if (!days.length) throw new Error('No discharge values at this grid cell');
+  return { days, ms: Math.round(performance.now() - t0), url };
+}
