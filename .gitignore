@@ -9,3 +9,10 @@ playwright-report
 test-results
 research/
 watchdog-frontend.zip
+.data/
+.env
+.env.local
+.cache/
+fhir/examples/
+fhir/validation.json
+fhir/validation.log
