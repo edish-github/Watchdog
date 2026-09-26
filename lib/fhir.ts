@@ -108,3 +108,61 @@ export function buildBundle(x: BundleInput): FhirBundle {
       note: [{ text: `Approved by ${x.advisory.approvedBy}. Valid until ${x.advisory.validUntil}. Audit ${x.advisory.auditHash?.slice(0, 16)}.` }],
     });
   }
+
+  add({
+    resourceType: 'Provenance', meta: tag, target: entries.map((e) => ({ reference: e.fullUrl })), recorded: x.now,
+    policy: [`urn:watchdog:rules:${RULES.version}:${RULES.sha}`],
+    activity: { coding: [{ system: 'http://terminology.hl7.org/CodeSystem/v3-DataOperation', code: 'CREATE', display: 'create' }] },
+    agent: [
+      { type: { coding: [{ system: 'http://terminology.hl7.org/CodeSystem/provenance-participant-type', code: 'verifier', display: 'Verifier' }] }, who: { display: x.actor } },
+      { type: { coding: [{ system: 'http://terminology.hl7.org/CodeSystem/provenance-participant-type', code: 'assembler', display: 'Assembler' }] }, who: { display: `Watchdog rules engine ${RULES.version} (${RULES.sha})` } },
+    ],
+    ...(sources.length ? { entity: sources.map((u) => ({ role: 'source', what: { reference: u } })) } : {}),
+  }, `target=${watchUrl}`);
+
+  return { resourceType: 'Bundle', id: x.id.toLowerCase(), type: 'transaction', timestamp: x.now, meta: tag, entry: entries };
+}
+
+const ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
+const OBS_STATUS = ['registered', 'preliminary', 'final', 'amended', 'corrected', 'cancelled', 'entered-in-error', 'unknown'];
+const FLAG_STATUS = ['active', 'inactive', 'entered-in-error'];
+
+/** Local structural R4 checks. The HL7 Java validator runs in CI (npm run fhir:validate). */
+export function validateBundle(b: FhirBundle): Validation {
+  const errors: string[] = [], warnings: string[] = [], notes: string[] = [];
+  let checked = 0;
+  const ok = (cond: boolean, msg: string) => { checked++; if (!cond) errors.push(msg); };
+  ok(b.resourceType === 'Bundle' && b.type === 'transaction', 'Bundle.type must be transaction');
+  ok(ISO.test(b.timestamp), 'Bundle.timestamp must be an instant');
+  const urls = new Set(b.entry.map((e) => e.fullUrl));
+  const refs: string[] = [];
+  const walk = (v: unknown) => { if (Array.isArray(v)) v.forEach(walk); else if (v && typeof v === 'object') for (const [k, x] of Object.entries(v)) { if (k === 'reference' && typeof x === 'string') refs.push(x); else walk(x); } };
+  b.entry.forEach((e, i) => {
+    const r = e.resource, p = `entry[${i}] ${r.resourceType}`;
+    ok(/^urn:uuid:[0-9a-f-]{36}$/.test(e.fullUrl), `${p}: fullUrl must be urn:uuid`);
+    ok(e.request.method === 'POST' && e.request.url === r.resourceType, `${p}: request must POST to ${r.resourceType}`);
+    if (e.request.ifNoneExist !== undefined) ok(/^[a-z-]+=.+/.test(e.request.ifNoneExist), `${p}: ifNoneExist must be a search query`);
+    if (r.resourceType === 'Observation') {
+      ok(OBS_STATUS.includes(String(r.status)), `${p}: status invalid`);
+      const code = r.code as { coding?: unknown[] } | undefined;
+      ok(!!code?.coding?.length, `${p}: code.coding required`);
+      ok(typeof r.effectiveDateTime === 'string' && ISO.test(r.effectiveDateTime), `${p}: effectiveDateTime must be dateTime`);
+    }
+    if (r.resourceType === 'Location') ok(typeof r.name === 'string', `${p}: name required`);
+    if (r.resourceType === 'Patient') ok(JSON.stringify(r.extension ?? '').includes('patient-animal'), `${p}: patient-animal extension required`);
+    if (r.resourceType === 'Flag') {
+      ok(FLAG_STATUS.includes(String(r.status)), `${p}: status invalid`);
+      ok(!!(r.subject as { reference?: string } | undefined)?.reference, `${p}: subject required`);
+      ok(!!(r.code as { text?: string } | undefined)?.text, `${p}: code required`);
+    }
+    if (r.resourceType === 'Communication') ok(typeof r.status === 'string', `${p}: status required`);
+    if (r.resourceType === 'Provenance') { ok(Array.isArray(r.target) && (r.target as unknown[]).length > 0, `${p}: target required`); ok(Array.isArray(r.agent) && (r.agent as unknown[]).length > 0, `${p}: agent required`); }
+    walk(r);
+  });
+  refs.forEach((ref) => ok(urls.has(ref), `Unresolved reference ${ref}`));
+  if (!b.entry.some((e) => e.resource.resourceType === 'Communication')) warnings.push('No Communication: bundle sent before an advisory was approved');
+  notes.push('Location uses conditional create on the site identifier, so re-sends do not duplicate sites.');
+  notes.push('Sentinel sign codes use a proposed CodeSystem (extension to the OAH FHIR IG).');
+  notes.push('Animal patient uses the R4 core extension patient-animal (SNOMED 448771007).');
+  return { errors, warnings, notes, checked };
+}
