@@ -16,3 +16,4 @@ watchdog-frontend.zip
 fhir/examples/
 fhir/validation.json
 fhir/validation.log
+venv/
