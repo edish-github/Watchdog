@@ -141,3 +141,12 @@ NEXT_PUBLIC_BACKEND=remote npm start
 COOKIE_SECURE=false NEXT_PUBLIC_BACKEND=remote npm start -- -H 0.0.0.0
 ```
 
+## Documentation
+
+| Document | What it covers |
+| --- | --- |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | Principles, diagrams, directory map, domain model, scoring, API, data model, AI, FHIR, security, testing, ADRs |
+| [DEPLOY.md](DEPLOY.md) | GitHub → Turso → Vercel, verification, scheduled jobs, rollback |
+
+Render the Mermaid diagrams to images: `bash scripts/render-diagrams.sh`.
+

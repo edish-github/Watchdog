@@ -1,7 +1,7 @@
 /** Server configuration, read at call time so tests can set process.env first. Never import from client code. */
 export const env = {
-  databaseUrl: () => process.env.DATABASE_URL || 'file:.data/watchdog.db',
-  databaseAuthToken: () => process.env.DATABASE_AUTH_TOKEN || undefined,
+  databaseUrl: () => process.env.DATABASE_URL || process.env.TURSO_DATABASE_URL || 'file:.data/watchdog.db',
+  databaseAuthToken: () => process.env.DATABASE_AUTH_TOKEN || process.env.TURSO_AUTH_TOKEN || undefined,
   isProd: () => process.env.NODE_ENV === 'production',
   onVercel: () => !!process.env.VERCEL,
   demoMode: () => (process.env.DEMO_MODE ?? 'true') !== 'false',
